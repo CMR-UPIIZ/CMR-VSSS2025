@@ -1,3 +1,137 @@
+import cv2 as cv
+import tkinter as tk
+from tkinter import ttk
+from PIL import Image, ImageTk
+
+path_image_folder = "Calib_images/"
+
+class ColorCalibrationApp(ttk.Frame):
+  def __init__(self, parent, size):
+    #---Initial config
+    super().__init__(parent)
+    super().configure(relief= 'groove', border= 5)#añade un borde para ver los limites
+    self.parent = parent
+    #self.parent.title('Calibracion de Color')
+
+    #--- grid config
+    self.config(width= size[0], height=size[1])
+    self.columnconfigure((0,1), weight = 1)
+    self.columnconfigure(2, weight = 9)
+    self.rowconfigure((0,3), weight = 1)
+    self.rowconfigure((1,2), weight = 2)
+
+    #---Variables
+    self.available_cameras = self.get_available_cameras()
+    self.selected_camera = tk.StringVar() #variable para seleccion de camara
+    self.selected_camera.set(self.available_cameras[0]) #primera opcion default
+    self.webcam = None
+    self.photo_counter = 1
+
+    #---Widgets
+    self.camera_selector = ttk.Combobox(
+      parent, textvariable= self.selected_camera,
+      values = self.available_cameras, state = 'normal' 
+    )
+    self.btn_toggle_video = tk.Button(
+      parent, text = "Conect to webcam", command = self.toggle_video,
+      fg = 'white', background = '#9fd9b3', font = 'Arial 18 bold'
+    )
+    self.btn_takePhoto = tk.Button(
+      parent, text = 'Tomar Foto', command = self.takePhoto,
+      fg = 'white', background = '#9fd9b3', font = 'Arial 18 bold'
+    )
+    self.video_display = ttk.Label(
+      parent
+    )
+    
+    #---Packing
+    self.video_display.grid(
+      row=0, rowspan=4, column=2, sticky='we'
+    )
+    self.camera_selector.grid(
+      row=1, column=0, sticky='nswe'
+    )
+    self.btn_toggle_video.grid(
+      row=1, column=1, sticky='nswe'
+    )
+    self.btn_takePhoto.grid(
+      row=2, column=0, columnspan=2, sticky='nswe'
+    )
+
+    #--- others
+    self.updateFrame()
+
+  def get_available_cameras(self):
+    camera_list = []
+    for i in range(10):
+      cam = cv.VideoCapture(i,cv.CAP_DSHOW)
+      if cam.isOpened():
+        camera_list.append(f'Camera {i}')
+        cam.release()
+    return camera_list
+
+  def toggle_video(self):
+    if self.webcam is None:
+      # obtene el indice de la camara
+      selected_camera_index = int(self.selected_camera.get().split()[-1])
+      self.webcam = cv.VideoCapture(selected_camera_index, cv.CAP_DSHOW)
+      if self.webcam.isOpened():
+        self.btn_toggle_video.config(text = 'Detener Video',background = '#ff1d44')
+        self.btn_takePhoto.config(state = 'normal')
+        self.camera_selector.config(state = 'disabled')
+    else:
+      self.webcam.release()
+      self.webcam = None
+      self.btn_toggle_video.config(text = 'Conect to webcam', background = '#9fd9b3')
+      self.btn_takePhoto.config(state = 'disabled')
+      self.camera_selector.config(state = 'normal')
+
+  def takePhoto(self):
+    if self.webcam is not None:
+      ret, frame = self.webcam.read()
+      if ret:
+        file_name = f'{path_image_folder}foto_cali{self.photo_counter}'
+        cv.imwrite(file_name,frame)
+        print(f"Foto tomada y guardada como '{file_name}'")
+        self.photo_counter += 1
+
+  def updateFrame(self):
+    if self.webcam is not None:
+      ret, frame = self.webcam.read()
+      if ret:
+        frame_rgb = cv.cvtColor(frame, cv.COLOR_BGR2RGB)
+        img = Image.fromarray(frame_rgb)
+        img = ImageTk.PhotoImage(image=img)
+        self.video_display.imgtk = img
+        self.video_display.config(image=img)
+    self.parent.after(10, self.updateFrame)
+
+screen_w = 1000
+screen_h = 600
+
+window = tk.Tk()
+window.geometry(f'{screen_w}x{screen_h}+0+0')
+
+pestanas = ttk.Notebook(window, width=  int(0.9*screen_w), height= int(0.9*screen_h))
+
+ColorCalib_frame = ColorCalibrationApp(pestanas,size=(int(0.9*screen_w),int(0.9*screen_h)))
+void_frame = ttk.Frame(pestanas)
+
+pestanas.add(ColorCalib_frame, text='pestaña 1')
+pestanas.add(void_frame, text='pestaña 2')
+
+pestanas.pack(expand= True)
+
+window.mainloop()
+
+
+
+
+
+
+
+
+
 #import cv2
 #import numpy as np
 #
@@ -92,77 +226,3 @@
 ## Liberar el capturador y cerrar las ventanas
 #cap.release()
 #cv2.destroyAllWindows()
-import cv2, numpy as np
-
-img1 = None
-win_name = 'Camera Matching'
-MIN_MATCH = 5
-# ORB 검출기 생성  ---①
-detector = cv2.ORB_create(1000)
-# Flann 추출기 생성 ---②
-FLANN_INDEX_LSH = 6
-index_params= dict( algorithm = FLANN_INDEX_LSH,
-                    table_number = 6,
-                    key_size = 12,
-                    multi_probe_level = 1)
-search_params=dict(checks=32)
-matcher = cv2.FlannBasedMatcher(index_params, search_params)
-# 카메라 캡쳐 연결 및 프레임 크기 축소 ---③
-cap = cv2.VideoCapture(1)              
-cap.set(cv2.CAP_PROP_FRAME_WIDTH, 640)
-cap.set(cv2.CAP_PROP_FRAME_HEIGHT, 480)
-
-while cap.isOpened():       
-  ret, frame = cap.read() 
-  if img1 is None:  # 등록된 이미지 없음, 카메라 바이패스
-    res = frame
-  else:             # 등록된 이미지 있는 경우, 매칭 시작
-    img2 = frame
-    gray1 = cv2.cvtColor(img1, cv2.COLOR_BGR2GRAY)
-    gray2 = cv2.cvtColor(img2, cv2.COLOR_BGR2GRAY)
-    # 키포인트와 디스크립터 추출
-    kp1, desc1 = detector.detectAndCompute(gray1, None)
-    kp2, desc2 = detector.detectAndCompute(gray2, None)
-    # k=2로 knnMatch
-    matches = matcher.knnMatch(desc1, desc2, 2)
-    # 이웃 거리의 75%로 좋은 매칭점 추출---②
-    ratio = 0.75
-    good_matches = [m[0] for m in matches \
-                        if len(m) == 2 and m[0].distance < m[1].distance * ratio]
-    print('good matches:%d/%d' %(len(good_matches),len(matches)))
-    # 모든 매칭점 그리지 못하게 마스크를 0으로 채움
-    matchesMask = np.zeros(len(good_matches)).tolist()
-    # 좋은 매칭점 최소 갯수 이상 인 경우
-    if len(good_matches) > MIN_MATCH: 
-      # 좋은 매칭점으로 원본과 대상 영상의 좌표 구하기 ---③
-      src_pts = np.float32([ kp1[m.queryIdx].pt for m in good_matches ])
-      dst_pts = np.float32([ kp2[m.trainIdx].pt for m in good_matches ])
-      # 원근 변환 행렬 구하기 ---⑤
-      mtrx, mask = cv2.findHomography(src_pts, dst_pts, cv2.RANSAC, 5.0)
-      accuracy=float(mask.sum()) / mask.size
-      print("accuracy: %d/%d(%.2f%%)"% (mask.sum(), mask.size, accuracy))
-      if mask.sum() > MIN_MATCH:  # 정상치 매칭점 최소 갯수 이상 인 경우
-        # 이상점 매칭점만 그리게 마스크 설정
-        matchesMask = mask.ravel().tolist()
-        # 원본 영상 좌표로 원근 변환 후 영역 표시  ---⑦
-        h,w, = img1.shape[:2]
-        pts = np.float32([ [[0,0]],[[0,h-1]],[[w-1,h-1]],[[w-1,0]] ])
-        dst = cv2.perspectiveTransform(pts,mtrx)
-        img2 = cv2.polylines(img2,[np.int32(dst)],True,255,3, cv2.LINE_AA)
-    # 마스크로 매칭점 그리기 ---⑨
-    res = cv2.drawMatches(  img1, kp1, img2, kp2, good_matches, None, \
-                            matchesMask=matchesMask,
-                            flags=cv2.DRAW_MATCHES_FLAGS_NOT_DRAW_SINGLE_POINTS)
-  # 결과 출력
-  cv2.imshow(win_name, res)
-  key = cv2.waitKey(1)
-  if key == 27:    # Esc, 종료
-    break          
-  elif key == ord(' '): # 스페이스 바로 ROI 설정해서 img1 설정
-    x,y,w,h = cv2.selectROI(win_name, frame, False)
-    if w and h:
-      img1 = frame[y:y+h, x:x+w]
-else:
-  print("can't open camera.")
-cap.release()                          
-cv2.destroyAllWindows()

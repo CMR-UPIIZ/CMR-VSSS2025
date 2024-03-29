@@ -8,7 +8,6 @@ lower_colors = {
   'magenta': np.array([140, 100, 100]),
   'yellow': np.array([30, 100, 255])
 }
-
 upper_colors = {
   'red': np.array([177, 153, 255]),
   'cyan': np.array([105, 255, 255]),
@@ -16,7 +15,6 @@ upper_colors = {
   'magenta': np.array([170, 255, 255]),
   'yellow': np.array([30, 146, 255])
 }
-
 
 def encontrar_cuadrado_aprox(contorno):
   # Aproximar el contorno a un polígono
@@ -30,8 +28,8 @@ def encontrar_cuadrado_aprox(contorno):
 # Función para encontrar el centro de un rectángulo
 def encontrar_centro(rect):
   x, y, w, h = rect
-  centro_x = x + w // 2
-  centro_y = y + h // 2
+  centro_x = x + (w // 2)
+  centro_y = y + (h // 2)
   return (centro_x, centro_y)
 
 # Función para encontrar el ángulo de rotación de un rectángulo
@@ -40,7 +38,6 @@ def encontrar_angulo(contorno):
   rect = cv2.minAreaRect(contorno)
   _, _, angulo = rect
   return angulo
-
 
 # red_detection
 def detectar_color_rojo(frame):
@@ -75,7 +72,6 @@ def detectar_color_rojo(frame):
 
   return frame
 
-
 # Función para detectar color rojo
 def calibrar_color(frame):
   # Convertir de BGR a HSV
@@ -98,7 +94,7 @@ def calibrar_color(frame):
   print("Color más brillante (H, S, V):", color_mas_brillante)
 
 # Cam capture
-cap = cv2.VideoCapture(1)
+cap = cv2.VideoCapture(0)
 
 while True:
   ret, frame = cap.read()
