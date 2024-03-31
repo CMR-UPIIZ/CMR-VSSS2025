@@ -1,0 +1,138 @@
+import cv2
+import numpy as np
+import tkinter as tk
+from tkinter import ttk
+from PIL import Image, ImageTk
+
+path_image_folder = "./"  # Ruta de la carpeta de imágenes
+
+class ColorDetectionApp:
+    def __init__(self, master):
+        self.master = master
+        self.master.title("Detección de Color")
+        self.cap = cv2.VideoCapture(0)
+        self.detector_activado = False
+        self.photo_counter = 0
+        self.selected_color = "Rojo"
+
+        self.canvas = tk.Canvas(master, width=640, height=480)
+        self.canvas.pack()
+
+        self.btn_iniciar = tk.Button(master, text="Iniciar Detección", command=self.iniciar_deteccion)
+        self.btn_iniciar.pack()
+
+        self.btn_detener = tk.Button(master, text="Detener", command=self.detener_deteccion, state=tk.DISABLED)
+        self.btn_detener.pack()
+
+        self.btn_capture = tk.Button(master, text="Capturar Imagen", command=self.capture_image)
+        self.btn_capture.pack()
+
+        self.color_options = ["Azul", "Verde", "Rojo", "Azul", "Amarillo"]
+        self.selected_color_var = tk.StringVar(master)
+        self.selected_color_var.set(self.color_options[0])
+
+        self.color_menu = ttk.OptionMenu(master, self.selected_color_var, *self.color_options, command=self.update_selected_color)
+        self.color_menu.pack()
+
+        self.update()
+
+    def iniciar_deteccion(self):
+        self.detector_activado = True
+        self.btn_iniciar.config(state=tk.DISABLED)
+        self.btn_detener.config(state=tk.NORMAL)
+
+    def detener_deteccion(self):
+        self.detector_activado = False
+        self.btn_iniciar.config(state=tk.NORMAL)
+        self.btn_detener.config(state=tk.DISABLED)
+
+    def capture_image(self):
+        if self.cap is not None:
+            ret, frame = self.cap.read()
+            if ret:
+                file_name = f"{path_image_folder}foto{self.photo_counter}.png"  
+                cv2.imwrite(file_name, frame)
+                print(f"Foto tomada y guardada como '{file_name}'")
+                self.photo_counter += 1  
+
+    def update_selected_color(self, selected_color):
+        self.selected_color = selected_color
+
+    def update(self):
+        ret, frame = self.cap.read()
+
+        if ret:
+            if self.detector_activado:
+                if self.selected_color == "Rojo":
+                    frame = detectar_color_rojo(frame)
+                elif self.selected_color == "Azul":
+                    frame = detectar_color_azul(frame)
+                elif self.selected_color == "Amarillo":
+                    frame = detectar_color_amarillo(frame)
+                elif self.selected_color == "Verde":
+                    frame = detectar_color_verde(frame)
+
+            frame = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
+            img = Image.fromarray(frame)
+            img = ImageTk.PhotoImage(image=img)
+            self.canvas.create_image(0, 0, anchor=tk.NW, image=img)
+            self.canvas.img = img
+
+        self.master.after(10, self.update)
+
+def detectar_color_rojo(frame):
+    hsv = cv2.cvtColor(frame, cv2.COLOR_BGR2HSV)
+    lower_red = np.array([0, 100, 100])
+    upper_red = np.array([10, 255, 255])
+    mask = cv2.inRange(hsv, lower_red, upper_red)
+    contours, _ = cv2.findContours(mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+    for contour in contours:
+        area = cv2.contourArea(contour)
+        if area > 100:
+            cv2.drawContours(frame, [contour], -1, (0, 255, 0), 2)
+    return frame
+
+def detectar_color_azul(frame):
+    hsv = cv2.cvtColor(frame, cv2.COLOR_BGR2HSV)
+    lower_blue = np.array([90, 50, 50])
+    upper_blue = np.array([130, 255, 255])
+    mask = cv2.inRange(hsv, lower_blue, upper_blue)
+    contours, _ = cv2.findContours(mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+    for contour in contours:
+        area = cv2.contourArea(contour)
+        if area > 100:
+            cv2.drawContours(frame, [contour], -1, (0, 255, 0), 2)
+    return frame
+
+def detectar_color_amarillo(frame):
+    hsv = cv2.cvtColor(frame, cv2.COLOR_BGR2HSV)
+    lower_yellow = np.array([20, 100, 100])
+    upper_yellow = np.array([30, 255, 255])
+    mask = cv2.inRange(hsv, lower_yellow, upper_yellow)
+    contours, _ = cv2.findContours(mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+    for contour in contours:
+        area = cv2.contourArea(contour)
+        if area > 100:
+            cv2.drawContours(frame, [contour], -1, (0, 255, 0), 2)
+    return frame
+
+def detectar_color_verde(frame):
+    hsv = cv2.cvtColor(frame, cv2.COLOR_BGR2HSV)
+    lower_green = np.array([36, 25, 25])
+    upper_green = np.array([86, 255, 255])
+    mask = cv2.inRange(hsv, lower_green, upper_green)
+    contours, _ = cv2.findContours(mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+    for contour in contours:
+        area = cv2.contourArea(contour)
+        if area > 100:
+            cv2.drawContours(frame, [contour], -1, (0, 255, 0), 2)
+    return frame
+
+
+def main():
+    root = tk.Tk()
+    app = ColorDetectionApp(root)
+    root.mainloop()
+
+if __name__ == "__main__":
+    main()
