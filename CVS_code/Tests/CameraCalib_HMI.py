@@ -3,6 +3,7 @@ import tkinter as tk
 from tkinter import ttk
 from PIL import Image, ImageTk
 import glob
+import numpy as np
 
 path_image_folder = "Calib_images/"
 path_camera_parameter = "../Camera_Cali_parameters"
@@ -15,7 +16,12 @@ class WebCamParameters:
     self.photo_counter = 1
     self.camera_size = ()
     self.camera_status = False
-    
+
+    self.current_px_position = None
+    self.event_px_pos = False
+    self.HGP_point_values = [None,None,None,None]
+    self.enableHGP_videoTrasf = False
+
   def get_available_cameras(self):
     camera_list = []
     for i in range(5):
@@ -43,6 +49,22 @@ class WebCamParameters:
       self.selected_camera_index = index
     else:
       print(f'Error la camara index {index}')
+  
+  def set_px_position(self, x,y):
+    self.current_px_position = (x,y)
+    self.event_px_pos = True
+  
+  def get_px_position(self):
+    if self.current_px_position is not None:
+      self.event_px_pos = False
+    return self.current_px_position
+
+  def check_valid_HGPpoits(self):
+    result = False
+    for i in range(4):
+      if self.HGP_point_values[i] is not None:
+        result = True
+    return result
 
 class CameraCalibrationPanel(ttk.Frame):
   def __init__(self, parent, camera_info):
@@ -109,7 +131,7 @@ class CameraCalibrationPanel(ttk.Frame):
       self, relief='groove', border=5
     )
     self.HGP_frame.columnconfigure((0,1), weight=1)
-    self.HGP_frame.rowconfigure((0,1,2,3,4,5), weight=1)
+    self.HGP_frame.rowconfigure((0,1,2,3,4,5,6), weight=1)
 
     self.Title_3 = tk.Label(
       self.HGP_frame, text='Homography Calib.',
@@ -151,6 +173,11 @@ class CameraCalibrationPanel(ttk.Frame):
     self.btn_resetHGPpoints = tk.Button(
       self.HGP_frame, text= 'RESET', command=self.resetHGPpointValues,
       fg='white', background='red', font='Arial 12 bold', state='disabled'
+    )
+    self.btn_doHomography = tk.Button(
+      self.HGP_frame, text='Applied HGP', state='disabled',
+      fg='white',font='Arial 12 bold', background='#9fd9b3',
+      command=self.doHomography
     )
 
     #---Packing
@@ -217,6 +244,10 @@ class CameraCalibrationPanel(ttk.Frame):
       row=5, column=0, columnspan=2,
       padx=10, pady=5, sticky='nswe'
     )
+    self.btn_doHomography.grid(
+      row=6, column=0, columnspan=2,
+      padx=10, pady=5, sticky='nswe'
+    )
 
     #--- others
     self.updateStatus()
@@ -224,12 +255,13 @@ class CameraCalibrationPanel(ttk.Frame):
   def CheckButtons_eventHandler(self,point):
     if self.HGP_points_state[point].get():
       self.HGP_point_selected = point+1
-      for i in range(4):
+      for i in range(0,4):
         if i is not point:
           self.HGP_points_state[i].set(False)
     else:
       self.HGP_point_selected = 0
-    print(f'Point selected = {self.HGP_point_selected}')
+    #--- para Debug
+    #print(f'Point selected = {self.HGP_point_selected}')
 
   def enable_LD_frame(self,enable):
     if enable:
@@ -265,9 +297,9 @@ class CameraCalibrationPanel(ttk.Frame):
       self.camera_info.setCameraIndex(int(self.camera_selector.get().split()[-1]))
       self.camera_info.connect_camera()
       if self.camera_info.webcam.isOpened():
-        
         image_size = (int(self.camera_info.webcam.get(cv.CAP_PROP_FRAME_WIDTH)),
                       int(self.camera_info.webcam.get(cv.CAP_PROP_FRAME_HEIGHT)))
+        self.camera_info.size = image_size
         print(f'Dimenciones de imagen [px] = {image_size}')
     else:
       self.camera_info.disconnect_camera()
@@ -282,18 +314,66 @@ class CameraCalibrationPanel(ttk.Frame):
         self.camera_info.photo_counter += 1
 
   def setHGPpoint(self): 
-    print('AÑADE la funcionalidad')
-    #La idea es que que check que boton esta selecionado
-    #mediante la variable self.HGP_point_selected y si
-    #existe un pixel selecionado, asigigne la posicion del px
-    #al punto respectivo para la homografia
-    
+    if self.HGP_point_selected != 0 and self.camera_info.current_px_position is not None:
+      self.camera_info.HGP_point_values[self.HGP_point_selected-1] = self.camera_info.current_px_position
+      if self.HGP_point_selected == 1:
+        self.PtnSelec_1.config(text=f'P1:{self.camera_info.current_px_position}')
+      elif self.HGP_point_selected == 2:
+        self.PtnSelec_2.config(text=f'P2:{self.camera_info.current_px_position}')
+      elif self.HGP_point_selected == 3:
+        self.PtnSelec_3.config(text=f'P3:{self.camera_info.current_px_position}')
+      elif self.HGP_point_selected == 4:
+        self.PtnSelec_4.config(text=f'P4:{self.camera_info.current_px_position}')
+
+      if self.btn_resetHGPpoints.cget('state') == 'disabled':
+        self.btn_resetHGPpoints.config(state='normal')
+
+      check = True
+      for i in range(4):
+        if self.camera_info.HGP_point_values[i] is None:
+          check = False
+      if check:
+        self.btn_doHomography.config(state='normal')
+      #--- para debug
+      # print(self.camera_info.HGP_point_values)
+    else:
+      
+      print('Primero seleciona un px y un punto para asignar!!')
 
   def resetHGPpointValues(self):
-    pass
+    self.camera_info.current_px_position = None
+    self.HGP_point_selected = 0
+    self.camera_info.enableHGP_videoTrasf = False
+    for i in range(0,4):
+      self.HGP_points_state[i].set(False)
+      self.camera_info.HGP_point_values[i]= None
+    
+    self.display_current_px.config(text= 'HGP Current Point\n[px]')
+    self.btn_resetHGPpoints.config(state='disabled')
+    self.btn_doHomography.config(state='disabled')
+    self.PtnSelec_1.config(text='P1')
+    self.PtnSelec_2.config(text='P2')
+    self.PtnSelec_3.config(text='P3')
+    self.PtnSelec_4.config(text='P4')
+
+    #--- para debug
+    #print(self.camera_info.HGP_point_values)
+    #print(self.camera_info.current_px_position)
+    #print(self.HGP_point_selected)
+
+  def doHomography(self):
+    self.camera_info.enableHGP_videoTrasf = True
 
   def doLDcalib(self):
     pass
+
+  def update_px_display(self):
+    if self.camera_info.event_px_pos:
+      x,y = self.camera_info.get_px_position()
+      if x is not None and y is not None:
+        self.display_current_px.config(text=f'HGP Current Point[px]:\n({x}, {y})')
+      else:
+        self.display_current_px.config(text='HGP Current Point[px]:\n(N/A)')
 
   def updateStatus(self):
     if self.camera_info.camera_status:
@@ -303,6 +383,8 @@ class CameraCalibrationPanel(ttk.Frame):
       
       self.enable_LD_frame(True)
       self.enable_HGP_frame(True)
+
+      self.update_px_display()
     else:
       self.btn_toggle_video.config(text = 'Conect to webcam', background = '#9fd9b3')
       self.btn_takePhoto.config(state = 'disabled')
@@ -329,25 +411,56 @@ class StreamWebcamVideo(ttk.Frame):
 
     #---Widgets
     self.video_display = ttk.Label(
-      self, justify='center'
+      self, justify='center', cursor='cross'#'plus'
     )
 
     #---Packing
-    self.video_display.grid(row=0,column=0,sticky='nswe')
+    self.video_display.grid(
+      row=0,column=0,sticky='nswe',
+      padx=5, pady=5
+    )
     #self.btn_toggle_video.grid(row=1,column=0,sticky='ns')
 
     #--- others
     self.updateFrame()
+    self.video_display.bind('<Button-1>',self.on_mouse_click)
+
+  def on_mouse_click(self,event):
+    if self.camera_info.camera_status:
+      x, y = event.x -3, event.y-20
+      x = max(min(x, self.camera_info.size[0]), 0)
+      y = max(min(y, self.camera_info.size[1]), 0)
+      
+      self.camera_info.set_px_position(x, y)
 
   def updateFrame(self):
     if self.camera_info.webcam is not None:
       ret, frame = self.camera_info.webcam.read()
       if ret:
+        
+        if self.camera_info.enableHGP_videoTrasf:
+          pts_origin = np.float32([self.camera_info.HGP_point_values])
+          pts_to_arrive = np.float32([(0,0),(self.camera_info.size[0],0),
+                                    (0,self.camera_info.size[1]),self.camera_info.size])
+          MTH = cv.getPerspectiveTransform(pts_origin,pts_to_arrive)
+          frame = cv.warpPerspective(frame,MTH,self.camera_info.size)
+
+        elif self.camera_info.check_valid_HGPpoits():
+          #print('drawing a valid ponit(s)')
+          for i in range(4):
+            if self.camera_info.HGP_point_values[i] is not None:
+              cv.circle(frame, self.camera_info.HGP_point_values[i], 5, (255, 0, 255), -1)
+              #print(f'drawing point {i}')
+        
         frame_rgb = cv.cvtColor(frame, cv.COLOR_BGR2RGB)
         img = Image.fromarray(frame_rgb)
-        img = ImageTk.PhotoImage(image=img)
+        img = ImageTk.PhotoImage(
+          image=img, width=self.camera_info.size[0], height=self.camera_info.size[1]
+        )
         self.video_display.imgtk = img
-        self.video_display.config(image=img)
+        self.video_display.config(
+          image=img
+        )
     self.parent.after(10, self.updateFrame)
 
 #Variables para dimeciones de la HMI (Actualmente en desuso)
@@ -361,7 +474,7 @@ window = tk.Tk() #window.geometry(f'{screen_w}x{screen_h}+0+0')
 #---Config. grid
 window.rowconfigure(0, weight=1)
 window.columnconfigure(0, weight=1)
-window.columnconfigure(1,weight=9)
+window.columnconfigure(1, weight=9)
 
 #---main widgets
 camera_struc = WebCamParameters()   #contenedor de parametros/variables para la camara
@@ -376,7 +489,7 @@ pestanas.add(Calib_frame, text='CONFIG.')
 pestanas.add(void_frame, text='TAG CALIB.')
 
 
-pestanas.grid(row=0, column=0, sticky='nswe')
+pestanas.grid(row=0, column=0, sticky='nswe',padx=5)
 video_frame.grid(row=0, column=1, sticky='nswe')
 
 window.mainloop() #loop principal de la main app
