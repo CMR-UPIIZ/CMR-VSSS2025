@@ -5,8 +5,8 @@ from PIL import Image, ImageTk
 import glob
 import numpy as np
 
-path_image_folder = "Calib_images/"
-path_camera_parameter = "../Camera_Cali_parameters"
+path_image_folder = "Tests/Calib_images/"
+path_camera_parameter = "Camera_Cali_parameters/"
 
 class WebCamParameters:
   def __init__(self):
