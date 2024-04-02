@@ -1,0 +1,37 @@
+import pygame
+import sys
+
+#Definir colores
+BLACK = (0, 0, 0)
+WHITE = (255, 255, 255)
+GREEN = (53, 104, 45)
+
+pygame.init()
+
+size = (640, 480)
+
+#crear ventana
+screen = pygame.display.set_mode(size)
+
+while True:
+    for event in pygame.event.get():
+        print(event)
+        if event.type == pygame.QUIT:
+            sys.exit()
+            
+    #Poner color de fondo
+    screen.fill(GREEN)    
+    
+    #zona de dibujo
+    pygame.draw.rect(screen, WHITE, (30, 10, 580, 460), 2)  # Dibujar el área grande
+    pygame.draw.rect(screen, WHITE, (30, 120, 60, 260), 2)  # Dibujar el área chica izquierda
+    pygame.draw.rect(screen, WHITE, (550, 120, 60, 260), 2)  # Dibujar el área chica derecha
+    pygame.draw.circle(screen, WHITE, (320, 240), 80, 2)  # Dibujar el círculo central
+    pygame.draw.line(screen, WHITE, (320, 10), (320, 470), 2)  # Dibujar la línea central
+    pygame.draw.rect(screen, WHITE, (0, 170, 30, 160), 2)  # Dibujar el arco izquierdo
+    pygame.draw.rect(screen, WHITE, (610, 170, 30, 160), 2)  # Dibujar el arco derecho
+    
+
+    
+    #Actualizar pantalla
+    pygame.display.flip()
