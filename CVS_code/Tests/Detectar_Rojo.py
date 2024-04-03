@@ -78,13 +78,13 @@ def calibrar_color(frame):
   hsv = cv2.cvtColor(frame, cv2.COLOR_BGR2HSV)
 
   # Seleccionar un área en la imagen
-  (x, y, w, h) = cv2.selectROI("Seleccionar área", frame, fromCenter=False, showCrosshair=True)
-
+  (x, y, w, h) = cv2.selectROI('Seleccionar area', frame, fromCenter=False, showCrosshair=True)
+  cv2.destroyWindow('Seleccionar area')
   # Recortar el área seleccionada
   area_seleccionada = hsv[y:y+h, x:x+w]
 
   # Calcular los vectores de color HSV promedio, más opaco y más brillante
-  promedio_color = np.mean(area_seleccionada, axis=(0, 1))
+  promedio_color = np.round(np.mean(area_seleccionada, axis=(0, 1))).astype(int)
   color_mas_opaco = np.min(area_seleccionada, axis=(0, 1))
   color_mas_brillante = np.max(area_seleccionada, axis=(0, 1))
 

@@ -16,11 +16,29 @@ class WebCamParameters:
     self.photo_counter = 1
     self.camera_size = ()
     self.camera_status = False
+    self.current_frame = None
 
     self.current_px_position = None
     self.event_px_pos = False
     self.HGP_point_values = [None,None,None,None]
     self.enableHGP_videoTrasf = False
+
+    self.Tcolors_lowRange = {
+      'yellow': np.array([30, 100, 255]),
+      'red': np.array([171, 122, 240]),
+      'cyan': np.array([85, 100, 100]),
+      'green': np.array([60, 100, 100]),
+      'magenta': np.array([140, 100, 100])
+    }
+    self.Tcolors_HighRange = {
+      'yellow': np.array([30, 146, 255]),
+      'red': np.array([177, 153, 255]),
+      'cyan': np.array([105, 255, 255]),
+      'green': np.array([80, 255, 255]),
+      'magenta': np.array([170, 255, 255])
+    }
+    self.enableColorDetection = False
+    self.current_color_picked = [None,None,None] #in color space HSV
 
   def get_available_cameras(self):
     camera_list = []
@@ -37,6 +55,8 @@ class WebCamParameters:
         print(f"Error: No se pudo abrir la cámara {self.selected_camera_index}")
       else:
         self.camera_status = True
+        self.camera_size = (int(self.webcam.get(cv.CAP_PROP_FRAME_WIDTH)),
+                            int(self.webcam.get(cv.CAP_PROP_FRAME_HEIGHT)))
 
   def disconnect_camera(self):
     if self.webcam is not None:
@@ -66,7 +86,79 @@ class WebCamParameters:
         result = True
     return result
 
-class CameraCalibrationPanel(ttk.Frame):
+  def check_valid_ColorPick(self):
+    pass
+
+  def updateFrame(self):
+    if self.webcam is not None:
+      ret, self.current_frame = self.webcam.read()
+      if ret:
+        if self.enableHGP_videoTrasf:
+          pts_origin = np.float32([self.HGP_point_values])
+          pts_to_arrive = np.float32([(0,0),(self.camera_size[0],0),
+                                    (0,self.camera_size[1]),self.camera_size])
+          MTH = cv.getPerspectiveTransform(pts_origin,pts_to_arrive)
+          self.current_frame = cv.warpPerspective(self.current_frame,MTH,self.camera_size)
+        elif self.check_valid_HGPpoits():
+          for i in range(len(self.HGP_point_values)):
+            if self.HGP_point_values[i] is not None:
+              cv.circle(self.current_frame, self.HGP_point_values[i], 4, (255, 0, 255), -1)
+    return self.current_frame
+
+class StreamWebcamVideo(ttk.Frame):
+  def __init__(self, parent, camera_info, config_tabs):
+    #---Initial config
+    super().__init__(parent)
+    super().configure(relief= 'groove', border= 5)#añade un borde para ver los limites
+    self.parent = parent
+
+    #--- grid config
+    self.rowconfigure(0,weight=1)
+    self.columnconfigure(0,weight=1)
+
+    #---Variables
+    self.camera_info = camera_info
+    self.config_tabs = config_tabs
+
+    #---Widgets
+    self.video_display = ttk.Label(
+      self, justify='center', cursor='cross'#'plus'
+    )
+
+    #---Packing
+    self.video_display.grid(
+      row=0,column=0,sticky='nswe',
+      padx=5, pady=5
+    )
+    #self.btn_toggle_video.grid(row=1,column=0,sticky='ns')
+
+    #--- others
+    self.updateFrame()
+    self.video_display.bind('<Button-1>',self.on_mouse_click)
+
+  def on_mouse_click(self,event):
+    if self.camera_info.camera_status and self.config_tabs.index('current')==0:
+      x, y = event.x -3, event.y-20
+      x = max(min(x, self.camera_info.camera_size[0]), 0)
+      y = max(min(y, self.camera_info.camera_size[1]), 0)
+      
+      self.camera_info.set_px_position(x, y)
+
+  def updateFrame(self):
+    if self.camera_info.webcam is not None:
+        frame = self.camera_info.updateFrame()
+        frame_rgb = cv.cvtColor(frame, cv.COLOR_BGR2RGB)
+        img = Image.fromarray(frame_rgb)
+        img = ImageTk.PhotoImage(
+          image=img, width=self.camera_info.camera_size[0], height=self.camera_info.camera_size[1]
+        )
+        self.video_display.imgtk = img
+        self.video_display.config(
+          image=img
+        )
+    self.parent.after(10, self.updateFrame)
+
+class CameraCalibration(ttk.Frame):
   def __init__(self, parent, camera_info):
     #---Initial config
     super().__init__(parent)
@@ -296,11 +388,8 @@ class CameraCalibrationPanel(ttk.Frame):
       # obtene el indice de la camara
       self.camera_info.setCameraIndex(int(self.camera_selector.get().split()[-1]))
       self.camera_info.connect_camera()
-      if self.camera_info.webcam.isOpened():
-        image_size = (int(self.camera_info.webcam.get(cv.CAP_PROP_FRAME_WIDTH)),
-                      int(self.camera_info.webcam.get(cv.CAP_PROP_FRAME_HEIGHT)))
-        self.camera_info.size = image_size
-        print(f'Dimenciones de imagen [px] = {image_size}')
+      if self.camera_info.camera_status:
+        print(f'Dimenciones de imagen [px] = {self.camera_info.camera_size}')
     else:
       self.camera_info.disconnect_camera()
 
@@ -329,7 +418,7 @@ class CameraCalibrationPanel(ttk.Frame):
         self.btn_resetHGPpoints.config(state='normal')
 
       check = True
-      for i in range(4):
+      for i in range(len(self.camera_info.HGP_point_values)):
         if self.camera_info.HGP_point_values[i] is None:
           check = False
       if check:
@@ -337,7 +426,6 @@ class CameraCalibrationPanel(ttk.Frame):
       #--- para debug
       # print(self.camera_info.HGP_point_values)
     else:
-      
       print('Primero seleciona un px y un punto para asignar!!')
 
   def resetHGPpointValues(self):
@@ -395,73 +483,229 @@ class CameraCalibrationPanel(ttk.Frame):
     
     self.parent.after(10, self.updateStatus)
 
-class StreamWebcamVideo(ttk.Frame):
-  def __init__(self, parent, camera_info):
-    #---Initial config
+class TagDetectionCalibration(ttk.Frame):
+  def __init__(self, parent, camera_info , ):
+    #--- Initial config
     super().__init__(parent)
-    super().configure(relief= 'groove', border= 5)#añade un borde para ver los limites
+    super().configure(relief= 'groove', border= 5)
     self.parent = parent
 
     #--- grid config
-    self.rowconfigure(0,weight=1)
-    self.columnconfigure(0,weight=1)
+    self.columnconfigure(0, weight=1)
+    self.rowconfigure((0,1),weight=1)
 
-    #---Variables
+    #--- varibles
     self.camera_info = camera_info
+    self.tag_colors_list = ('Yellow', 'Blue', 'Red', 'Green','Cyan','Magent')
 
-    #---Widgets
-    self.video_display = ttk.Label(
-      self, justify='center', cursor='cross'#'plus'
+    #--- widgets
+    self.CC_frame = ttk.Frame(
+      self, relief='groove', border=5
     )
-
-    #---Packing
-    self.video_display.grid(
-      row=0,column=0,sticky='nswe',
+    self.CC_frame.columnconfigure((0,1), weight=1)
+    self.CC_frame.rowconfigure((0,1,2,3,4,5),weight=1)
+    self.Title_1 = tk.Label(
+      self.CC_frame, text='Color Calibration',
+      justify='center'
+    )
+    self.color_selector = ttk.Combobox(
+      self.CC_frame, values=self.tag_colors_list,
+      state='readonly', justify='center'
+    )
+    self.color_selector.set(self.tag_colors_list[0])
+    self.btn_doColorId = tk.Button(
+      self.CC_frame, text='READ COLOR', command= self.doColorID,
+      fg='white', background='#9fd9b3', state='disabled'
+    )
+    self.color_range_display = (
+      tk.Label(
+        self.CC_frame,background='white',
+        justify='center', text='Low Range'
+      ),
+      tk.Label(
+        self.CC_frame, background='white',
+        justify='center', text='High Range'
+      ),
+      tk.Label(
+        self.CC_frame, background='grey',
+        justify='center', text='Average Color',
+        fg='white'
+      )
+    )
+    self.btns_set_range = (
+      tk.Button(
+        self.CC_frame, text='LOW', justify='center',
+        background='#9fd9b3', fg='white', state='disabled',
+        command=self.setLowCrange
+      ),
+      tk.Button(
+        self.CC_frame, text='HIGH', justify='center',
+        background='#9fd9b3', fg='white', state='disabled',
+        command=self.setHighCrange
+      )
+    )
+    self.btn_doDetectColors = tk.Button(
+      self.CC_frame, text='ENABLE C.D.', command= self.enableColorDetect,
+      fg='white', background='#9fd9b3', state='disabled'
+    )
+    #--- packing
+    self.CC_frame.grid(
+      row=0, column=0, sticky='nswe'
+    )
+    self.Title_1.grid(
+      row=0,column=0, columnspan=2, sticky='nswe',
       padx=5, pady=5
     )
-    #self.btn_toggle_video.grid(row=1,column=0,sticky='ns')
+    self.color_selector.grid(
+      row=1, column=0, sticky='nswe',
+      padx=5, pady=5
+    )
+    self.btn_doColorId.grid(
+      row=1, column=1, sticky='nswe',
+      padx=5, pady=5
+    )
+    self.color_range_display[2].grid(
+      row=2, column=0, columnspan=2, sticky='nswe',
+      padx=5, pady=5
+    )
+    self.color_range_display[0].grid(
+      row=3, column=0, sticky='nswe',
+      padx=5, pady=5
+    )
+    self.color_range_display[1].grid(
+      row=3, column=1, sticky='nswe',
+      padx=5, pady=5
+    )
+    self.btns_set_range[0].grid(
+      row=4, column=0, sticky='nswe',
+      padx=5, pady=5
+    )
+    self.btns_set_range[1].grid(
+      row=4, column=1, sticky='nswe',
+      padx=5, pady=5
+    )
+    self.btn_doDetectColors.grid(
+      row=5, column=0, columnspan=2, sticky='nswe',
+      padx=5, pady=5
+    )
 
     #--- others
-    self.updateFrame()
-    self.video_display.bind('<Button-1>',self.on_mouse_click)
+    self.updateStatus()
 
-  def on_mouse_click(self,event):
+  def hsv_to_rgb(self,hsv):
+    h, s, v = hsv
+    h = float(h) / 180.0
+    s = float(s) / 255.0
+    v = float(v) / 255.0
+
+    if s == 0:
+      r = g = b = v
+    else:
+      i = int(h * 6.0)
+      f = (h * 6.0) - i
+      p = v * (1.0 - s)
+      q = v * (1.0 - s * f)
+      t = v * (1.0 - s * (1.0 - f))
+      if i % 6 == 0:
+        r, g, b = v, t, p
+      elif i == 1:
+        r, g, b = q, v, p
+      elif i == 2:
+        r, g, b = p, v, t
+      elif i == 3:
+        r, g, b = p, q, v
+      elif i == 4:
+        r, g, b = t, p, v
+      else:
+        r, g, b = v, p, q
+
+    return [int(r * 255), int(g * 255), int(b * 255)]
+
+  def doColorID(self):
     if self.camera_info.camera_status:
-      x, y = event.x -3, event.y-20
-      x = max(min(x, self.camera_info.size[0]), 0)
-      y = max(min(y, self.camera_info.size[1]), 0)
+      frame = self.camera_info.current_frame
+      # Convertir de BGR a HSV
+      hsv = cv.cvtColor(frame, cv.COLOR_BGR2HSV)
+
+      # Seleccionar un área en la imagen
+      (x, y, w, h) = cv.selectROI('ColorPicker', frame, fromCenter=False, showCrosshair=True)
+      cv.destroyWindow('ColorPicker')
+
+      # Recortar el área seleccionada
+      selected_area = hsv[y:y+h, x:x+w]
+
+      # Calcular los vectores de color HSV promedio, más opaco y más brillante
+      prom_color = np.round(np.mean(selected_area, axis=(0, 1))).astype(int)
+      opaque_color = np.min(selected_area, axis=(0, 1))
+      shine_color = np.max(selected_area, axis=(0, 1))
+
+      self.camera_info.current_color_picked[0] = (opaque_color[0],opaque_color[1],opaque_color[2])
+      self.camera_info.current_color_picked[1] = (shine_color[0],shine_color[1],shine_color[2])
+      self.camera_info.current_color_picked[2] = (prom_color[0],prom_color[1],prom_color[2])
+
+      # Imprimir los resultados
+      prom_color_rgb = self.hsv_to_rgb(prom_color)
+      opaque_color_rgb = self.hsv_to_rgb(opaque_color)
+      shine_color_rgb = self.hsv_to_rgb(shine_color)
+      prom_color_hex = '#{:02x}{:02x}{:02x}'.format(prom_color_rgb[0], 
+                                                    prom_color_rgb[1],
+                                                    prom_color_rgb[2])
+      opaque_color_hex = '#{:02x}{:02x}{:02x}'.format( opaque_color_rgb[0], 
+                                                          opaque_color_rgb[1],
+                                                          opaque_color_rgb[2])
+      shine_color_hex = '#{:02x}{:02x}{:02x}'.format( shine_color_rgb[0], 
+                                                              shine_color_rgb[1],
+                                                              shine_color_rgb[2])
+      self.color_range_display[2].config(
+        background=prom_color_hex, text='Average Color:\n'+prom_color_hex
+      )
+      self.color_range_display[0].config(
+        background=opaque_color_hex, text= 'LOW Range:\n'+opaque_color_hex
+      )
+      self.color_range_display[1].config(
+        background=shine_color_hex, text= 'HIGH Range:\n'+shine_color_hex
+      )
       
-      self.camera_info.set_px_position(x, y)
+      #-debug
+      #print("Color promedio (H, S, V):", prom_color)
+      #print("Color más opaco (H, S, V):", opaque_color)
+      #print("Color más brillante (H, S, V):", shine_color)
 
-  def updateFrame(self):
-    if self.camera_info.webcam is not None:
-      ret, frame = self.camera_info.webcam.read()
-      if ret:
-        
-        if self.camera_info.enableHGP_videoTrasf:
-          pts_origin = np.float32([self.camera_info.HGP_point_values])
-          pts_to_arrive = np.float32([(0,0),(self.camera_info.size[0],0),
-                                    (0,self.camera_info.size[1]),self.camera_info.size])
-          MTH = cv.getPerspectiveTransform(pts_origin,pts_to_arrive)
-          frame = cv.warpPerspective(frame,MTH,self.camera_info.size)
+  def setLowCrange(self):
+    pass
+  
+  def setHighCrange(self):
+    pass
 
-        elif self.camera_info.check_valid_HGPpoits():
-          #print('drawing a valid ponit(s)')
-          for i in range(4):
-            if self.camera_info.HGP_point_values[i] is not None:
-              cv.circle(frame, self.camera_info.HGP_point_values[i], 5, (255, 0, 255), -1)
-              #print(f'drawing point {i}')
-        
-        frame_rgb = cv.cvtColor(frame, cv.COLOR_BGR2RGB)
-        img = Image.fromarray(frame_rgb)
-        img = ImageTk.PhotoImage(
-          image=img, width=self.camera_info.size[0], height=self.camera_info.size[1]
-        )
-        self.video_display.imgtk = img
-        self.video_display.config(
-          image=img
-        )
-    self.parent.after(10, self.updateFrame)
+  def enableColorDetect(self):
+    self.camera_info.enableColorDetection = not self.camera_info.enableColorDetection
+
+  def enable_CC_frame(self,enable):
+    if enable:
+      self.Title_1.config(state='normal')
+      self.color_selector.config(state='readonly')
+      self.btn_doColorId.config(state='normal')
+      self.color_range_display[2].config(state='normal')
+      self.color_range_display[0].config(state='normal')
+      self.color_range_display[1].config(state='normal')
+      self.btns_set_range[0].config(state='normal')
+      self.btns_set_range[1].config(state='normal')
+      self.btn_doDetectColors.config(state='normal')
+    else:
+      self.Title_1.config(state='disabled')
+      self.color_selector.config(state='disabled')
+      self.btn_doColorId.config(state='disabled')
+      self.color_range_display[2].config(state='disabled')
+      self.color_range_display[0].config(state='disabled')
+      self.color_range_display[1].config(state='disabled')
+      self.btns_set_range[0].config(state='disabled')
+      self.btns_set_range[1].config(state='disabled')
+      self.btn_doDetectColors.config(state='disabled')
+
+  def updateStatus(self):
+    self.enable_CC_frame(self.camera_info.camera_status)
+    self.parent.after(10,self.updateStatus)
+
 
 #Variables para dimeciones de la HMI (Actualmente en desuso)
 screen_w = 1000
@@ -478,15 +722,15 @@ window.columnconfigure(1, weight=9)
 
 #---main widgets
 camera_struc = WebCamParameters()   #contenedor de parametros/variables para la camara
-video_frame = StreamWebcamVideo(window, camera_info=camera_struc) #Display para el video
 pestanas = ttk.Notebook(window)     #Pestañas para selecionar las configuraciones
-Calib_frame = CameraCalibrationPanel(pestanas, camera_info=camera_struc)
-void_frame = ttk.Frame(pestanas)    #proximanmete, config para detectar tags 
+video_frame = StreamWebcamVideo(window, camera_info=camera_struc, config_tabs=pestanas) #Display para el video
+CalibCamara_frame = CameraCalibration(pestanas, camera_info=camera_struc)
+CalibTags_frame = TagDetectionCalibration(pestanas,camera_info=camera_struc)#ttk.Frame(pestanas)    #proximanmete, config para detectar tags 
 
 #---enpaquetado 
 #Config. pestañas (añadiendo Frames para cada pestaña)
-pestanas.add(Calib_frame, text='CONFIG.')
-pestanas.add(void_frame, text='TAG CALIB.')
+pestanas.add(CalibCamara_frame, text='CONFIG.')
+pestanas.add(CalibTags_frame, text='TAG CALIB.')
 
 
 pestanas.grid(row=0, column=0, sticky='nswe',padx=5)
