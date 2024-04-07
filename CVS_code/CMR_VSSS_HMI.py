@@ -2,11 +2,12 @@ import cv2 as cv
 import tkinter as tk
 from tkinter import ttk
 from PIL import Image, ImageTk
-import glob
+import json
 import numpy as np
 
 path_image_folder = "Tests/Calib_images/"
 path_camera_parameter = "Camera_Cali_parameters/"
+path_tag_color_calib_file = "ColorTags_VSSS/Color_Range_Calib_Values.json"
 
 class WebCamParameters:
   def __init__(self):
@@ -23,22 +24,13 @@ class WebCamParameters:
     self.HGP_point_values = [None,None,None,None]
     self.enableHGP_videoTrasf = False
 
-    self.Tcolors_lowRange = {
-      'yellow': np.array([30, 100, 255]),
-      'red': np.array([171, 122, 240]),
-      'cyan': np.array([85, 100, 100]),
-      'green': np.array([60, 100, 100]),
-      'magenta': np.array([140, 100, 100])
-    }
-    self.Tcolors_HighRange = {
-      'yellow': np.array([30, 146, 255]),
-      'red': np.array([177, 153, 255]),
-      'cyan': np.array([105, 255, 255]),
-      'green': np.array([80, 255, 255]),
-      'magenta': np.array([170, 255, 255])
-    }
+    self.Tcolors_LowRange = {}
+    self.Tcolors_HighRange = {}
+    self.Tcolors_Average = {}
     self.enableColorDetection = False
     self.current_color_picked = [None,None,None] #in color space HSV
+
+    self.loadParameters()
 
   def get_available_cameras(self):
     camera_list = []
@@ -87,7 +79,48 @@ class WebCamParameters:
     return result
 
   def check_valid_ColorPick(self):
-    pass
+    result = False
+    for i in range(len(self.current_color_picked)):
+      if self.current_color_picked[i] is None:
+        result = False
+      else:
+        result = True
+    return result
+
+  def loadParameters(self):
+    try:
+      with open(path_tag_color_calib_file,'r') as f:
+        data =  json.load(f)
+        self.Tcolors_LowRange = data["Tcolors_LowRange"]
+        self.Tcolors_HighRange = data["Tcolors_HighRange"]
+        self.Tcolors_Average = data["Tcolors_Average"]
+      print("Tag Color Calibration Parameters LOAD Succesfully")
+    except Exception as e:
+      print(f"ERROR Tag Color Calibration Parameters DID NOT LOAD:\n{e}")
+
+  def saveParameters(self):
+    data = {
+      "Tcolors_LowRange":self.Tcolors_LowRange,
+      "Tcolors_HighRange":self.Tcolors_HighRange,
+      "Tcolors_Average":self.Tcolors_Average
+    }
+    
+    try:
+      with open(path_tag_color_calib_file,'w') as f:
+        json.dump(data,f,default=self.numpy_array_to_list)
+      print("Tag Color Calibration Parameters Saved Succesfully")
+    except Exception as e:
+      print(f"ERROR Tag Color Calibration Parameters DID NOT SAVE:\n{e}")
+
+  @staticmethod
+  def numpy_array_to_list(obj):
+    if isinstance(obj, np.ndarray):
+      if obj.dtype == np.uint8:
+        return obj.astype(int).tolist()
+      return obj.tolist()
+    elif isinstance(obj, list):
+      return obj
+    raise TypeError(f'Object of type {type(obj)} is not JSON serializable')
 
   def updateFrame(self):
     if self.webcam is not None:
@@ -496,13 +529,13 @@ class TagDetectionCalibration(ttk.Frame):
 
     #--- varibles
     self.camera_info = camera_info
-    self.tag_colors_list = ('Yellow', 'Blue', 'Red', 'Green','Cyan','Magent')
+    self.tag_colors_list = ('Yellow', 'Blue', 'Red', 'Cyan', 'Green','Magent')
 
     #--- widgets
     self.CC_frame = ttk.Frame(
       self, relief='groove', border=5
     )
-    self.CC_frame.columnconfigure((0,1), weight=1)
+    self.CC_frame.columnconfigure((0,1,2), weight=1)
     self.CC_frame.rowconfigure((0,1,2,3,4,5),weight=1)
     self.Title_1 = tk.Label(
       self.CC_frame, text='Color Calibration',
@@ -518,15 +551,30 @@ class TagDetectionCalibration(ttk.Frame):
       fg='white', background='#9fd9b3', state='disabled'
     )
     self.color_range_display = (
-      tk.Label(
+      tk.Label(     # LOW RANGE COLOR
         self.CC_frame,background='white',
         justify='center', text='Low Range'
       ),
-      tk.Label(
+      tk.Label(     # HIGH RANGE COLOR
         self.CC_frame, background='white',
         justify='center', text='High Range'
       ),
-      tk.Label(
+      tk.Label(     # AVERAGE COLOR
+        self.CC_frame, background='grey',
+        justify='center', text='Average Color',
+        fg='white'
+      )
+    )
+    self.current_color_range_display = (
+      tk.Label(     # LOW RANGE COLOR
+        self.CC_frame,background='white',
+        justify='center', text='Low Range'
+      ),
+      tk.Label(     # HIGH RANGE COLOR
+        self.CC_frame, background='white',
+        justify='center', text='High Range'
+      ),
+      tk.Label(     # AVERAGE COLOR
         self.CC_frame, background='grey',
         justify='center', text='Average Color',
         fg='white'
@@ -548,49 +596,64 @@ class TagDetectionCalibration(ttk.Frame):
       self.CC_frame, text='ENABLE C.D.', command= self.enableColorDetect,
       fg='white', background='#9fd9b3', state='disabled'
     )
+
     #--- packing
     self.CC_frame.grid(
       row=0, column=0, sticky='nswe'
     )
     self.Title_1.grid(
-      row=0,column=0, columnspan=2, sticky='nswe',
+      row=0,column=0, columnspan=3, sticky='nswe',
       padx=5, pady=5
     )
-    self.color_selector.grid(
+    self.current_color_range_display[0].grid(
       row=1, column=0, sticky='nswe',
+      pady=5
+    )
+    self.current_color_range_display[2].grid(
+      row=1, column=1, sticky='nswe',
+      pady=5
+    )
+    self.current_color_range_display[1].grid(
+      row=1, column=2, sticky='nswe',
+      pady=5
+    )
+    self.color_selector.grid(
+      row=2, column=0, columnspan=2, sticky='nswe',
       padx=5, pady=5
     )
     self.btn_doColorId.grid(
-      row=1, column=1, sticky='nswe',
-      padx=5, pady=5
-    )
-    self.color_range_display[2].grid(
-      row=2, column=0, columnspan=2, sticky='nswe',
+      row=2, column=2, sticky='nswe',
       padx=5, pady=5
     )
     self.color_range_display[0].grid(
       row=3, column=0, sticky='nswe',
-      padx=5, pady=5
+      pady=5
+    )
+    self.color_range_display[2].grid(
+      row=3, column=1, sticky='nswe',
+      pady=5
     )
     self.color_range_display[1].grid(
-      row=3, column=1, sticky='nswe',
-      padx=5, pady=5
+      row=3, column=2, sticky='nswe',
+      pady=5
     )
     self.btns_set_range[0].grid(
       row=4, column=0, sticky='nswe',
       padx=5, pady=5
     )
     self.btns_set_range[1].grid(
-      row=4, column=1, sticky='nswe',
+      row=4, column=2, sticky='nswe',
       padx=5, pady=5
     )
     self.btn_doDetectColors.grid(
-      row=5, column=0, columnspan=2, sticky='nswe',
+      row=5, column=0, columnspan=3, sticky='nswe',
       padx=5, pady=5
     )
 
     #--- others
     self.updateStatus()
+    self.updateColorDisplays()
+    self.color_selector.bind("<<ComboboxSelected>>", lambda event: self.updateColorDisplays())
 
   def hsv_to_rgb(self,hsv):
     h, s, v = hsv
@@ -636,12 +699,12 @@ class TagDetectionCalibration(ttk.Frame):
 
       # Calcular los vectores de color HSV promedio, más opaco y más brillante
       prom_color = np.round(np.mean(selected_area, axis=(0, 1))).astype(int)
-      opaque_color = np.min(selected_area, axis=(0, 1))
-      shine_color = np.max(selected_area, axis=(0, 1))
+      opaque_color = np.min(selected_area, axis=(0, 1)).astype(int)
+      shine_color = np.max(selected_area, axis=(0, 1)).astype(int)
 
-      self.camera_info.current_color_picked[0] = (opaque_color[0],opaque_color[1],opaque_color[2])
-      self.camera_info.current_color_picked[1] = (shine_color[0],shine_color[1],shine_color[2])
-      self.camera_info.current_color_picked[2] = (prom_color[0],prom_color[1],prom_color[2])
+      self.camera_info.current_color_picked[0] = opaque_color.tolist()
+      self.camera_info.current_color_picked[1] = shine_color.tolist()
+      self.camera_info.current_color_picked[2] = prom_color.tolist()
 
       # Imprimir los resultados
       prom_color_rgb = self.hsv_to_rgb(prom_color)
@@ -672,10 +735,42 @@ class TagDetectionCalibration(ttk.Frame):
       #print("Color más brillante (H, S, V):", shine_color)
 
   def setLowCrange(self):
-    pass
+    if self.camera_info.check_valid_ColorPick():
+      index = self.color_selector.get()
+      self.camera_info.Tcolors_LowRange[index] = self.camera_info.current_color_picked[0]
+      av = []
+      av.append(int(np.mean([ self.camera_info.Tcolors_LowRange[index][0],
+                          self.camera_info.Tcolors_HighRange[index][0]])))
+      av.append(int(np.mean([ self.camera_info.Tcolors_LowRange[index][1],
+                          self.camera_info.Tcolors_HighRange[index][1]])))
+      av.append(int(np.mean([ self.camera_info.Tcolors_LowRange[index][2],
+                          self.camera_info.Tcolors_HighRange[index][2]])))
+      self.camera_info.Tcolors_Average[index] = av 
+
+      self.camera_info.saveParameters()
+      #-Debug
+      #print(f'prom = {av}')
+      #print(f'Save in Low range of {index}:{self.camera_info.current_color_picked[0]}')
+    
+    self.updateColorDisplays()
   
   def setHighCrange(self):
-    pass
+    if self.camera_info.check_valid_ColorPick():
+      index = self.color_selector.get()
+      self.camera_info.Tcolors_HighRange[index] = self.camera_info.current_color_picked[1]
+      av = []
+      av.append(int(np.mean([ self.camera_info.Tcolors_LowRange[index][0],
+                          self.camera_info.Tcolors_HighRange[index][0]])))
+      av.append(int(np.mean([ self.camera_info.Tcolors_LowRange[index][1],
+                          self.camera_info.Tcolors_HighRange[index][1]])))
+      av.append(int(np.mean([ self.camera_info.Tcolors_LowRange[index][2],
+                          self.camera_info.Tcolors_HighRange[index][2]])))
+      self.camera_info.Tcolors_Average[index] = av 
+      self.camera_info.saveParameters()
+      #-Debug
+      #print(f'prom = {av}')
+      #print(f'Save in High range of {index}:{self.camera_info.current_color_picked[1]}')
+    self.updateColorDisplays()
 
   def enableColorDetect(self):
     self.camera_info.enableColorDetection = not self.camera_info.enableColorDetection
@@ -702,8 +797,39 @@ class TagDetectionCalibration(ttk.Frame):
       self.btns_set_range[1].config(state='disabled')
       self.btn_doDetectColors.config(state='disabled')
 
+  def updateColorDisplays(self):
+    # Imprimir los resultados
+    index = self.color_selector.get()
+    opaque_color = self.camera_info.Tcolors_LowRange[index]
+    shine_color = self.camera_info.Tcolors_HighRange[index]
+    average_color = self.camera_info.Tcolors_Average[index]
+
+    average_color_rgb = self.hsv_to_rgb(average_color)
+    opaque_color_rgb = self.hsv_to_rgb(opaque_color)
+    shine_color_rgb = self.hsv_to_rgb(shine_color)
+    prom_color_hex = '#{:02x}{:02x}{:02x}'.format(average_color_rgb[0], 
+                                                  average_color_rgb[1],
+                                                  average_color_rgb[2])
+    opaque_color_hex = '#{:02x}{:02x}{:02x}'.format( opaque_color_rgb[0], 
+                                                        opaque_color_rgb[1],
+                                                        opaque_color_rgb[2])
+    shine_color_hex = '#{:02x}{:02x}{:02x}'.format( shine_color_rgb[0], 
+                                                            shine_color_rgb[1],
+                                                            shine_color_rgb[2])
+    self.current_color_range_display[2].config(
+      background=prom_color_hex, text='Average Color:\n'+prom_color_hex
+    )
+    self.current_color_range_display[0].config(
+      background=opaque_color_hex, text= 'LOW Range:\n'+opaque_color_hex
+    )
+    self.current_color_range_display[1].config(
+      background=shine_color_hex, text= 'HIGH Range:\n'+shine_color_hex
+    )
+    pass
+
   def updateStatus(self):
     self.enable_CC_frame(self.camera_info.camera_status)
+    #self.updateColorDisplays()
     self.parent.after(10,self.updateStatus)
 
 
