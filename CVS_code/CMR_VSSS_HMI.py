@@ -4,6 +4,7 @@ from tkinter import ttk
 from PIL import Image, ImageTk
 import json
 import numpy as np
+import math
 
 path_image_folder = "Tests/Calib_images/"
 path_camera_parameter = "Camera_Cali_parameters/"
@@ -29,6 +30,43 @@ class WebCamParameters:
     self.Tcolors_Average = {}
     self.enableColorDetection = False
     self.current_color_picked = [None,None,None] #in color space HSV
+
+    self.debug_draws = {
+      'centers': True,
+      'd_color_rect': False,
+      'tag_center':True,
+      'tag_perimeter':True,
+      'tag_t_lines': False,
+      'tag_d_area': False,
+      'tag_ID_text': True,
+      'angle_ref': False
+    }
+    self.areaThreshold = 100
+
+    self.tag_yellow_ID = {
+      'ygr':1,
+      'ycr':2,
+      'yrg':3,
+      'ycg':4,
+      'ymg':5,
+      'yrc':6,
+      'ygc':7,
+      'ymc':8,
+      'ygm':9,
+      'ycm':10
+    }
+    self.tag_blue_ID = {
+      'bgr':1,
+      'bcr':2,
+      'brg':3,
+      'bcg':4,
+      'bmg':5,
+      'brc':6,
+      'bgc':7,
+      'bmc':8,
+      'bgm':9,
+      'bcm':10
+    }
 
     self.loadParameters()
 
@@ -122,6 +160,488 @@ class WebCamParameters:
       return obj
     raise TypeError(f'Object of type {type(obj)} is not JSON serializable')
 
+  @staticmethod
+  def find_aprox_square(contorno):
+    # Aproximar el contorno a un polígono
+    approx = cv.approxPolyDP(contorno, 0.04 * cv.arcLength(contorno, True), True)
+
+    # Encontrar el rectángulo delimitador del polígono aproximado
+    rect = cv.boundingRect(approx)
+
+    return rect
+
+  # Función para encontrar el centro de un rectángulo
+  @staticmethod
+  def get_square_center(rect):
+    x, y, w, h = rect
+    centro_x = x + (w // 2)
+    centro_y = y + (h // 2)
+    return (centro_x, centro_y)
+
+  # Función para encontrar el ángulo de rotación de un rectángulo
+  @staticmethod
+  def get_square_angule(contorno):
+    # Ajustar un rectángulo rotado al contorno
+    rect = cv.minAreaRect(contorno)
+    _, _, angulo = rect
+    return angulo
+
+  @staticmethod
+  def get_distance_btwn_points(A,B):
+    x1, y1 = A
+    x2, y2 = B
+
+    d = math.sqrt((x2 - x1)**2 + (y2 - y1)**2)
+    return d
+
+  @staticmethod
+  def get_horiz_inclination(A,B):
+    x1,y1 = A
+    x2,y2 = B
+    
+    y1 = -y1
+    y2 = -y2 
+
+    y_discr = (y2 - y1)
+    x_discr = (x2 - x1)
+
+    if(abs(x_discr) == 0): #poinst aliend vertically
+      if y_discr >= 0 :
+        theta_deg = 90
+      else:
+        theta_deg = -90
+    elif(abs(y_discr) == 0):
+      if x_discr >= 0 :
+        theta_deg = 0
+      else:
+        theta_deg = 180
+    else:
+      m = (y2-y1)/(x2-x1)
+      theta = math.atan(m)
+      theta_deg = math.degrees(theta)
+
+      if ((x_discr<0) and (y_discr<0)):
+        theta_deg = -180 + theta_deg
+      elif ((x_discr<0) and (y_discr>0)):
+        theta_deg = 180 + theta_deg
+
+    return theta_deg
+
+  @staticmethod
+  def get_vert_inclination(A,B):
+    x1,y1 = A
+    x2,y2 = B
+
+    y_discr = (y2 - y1)
+    x_discr = (x2 - x1)
+
+
+    if(abs(x_discr) <= 2): #poinst aliend vertically
+      if y_discr >= 0 :
+        theta_deg = 0
+      else:
+        theta_deg = 180
+    elif(abs(y_discr) == 0): #poinst aliend horiz
+      if x_discr >= 0 :
+        theta_deg = -90
+      else:
+        theta_deg = 90
+    else:
+      m = (y2-y1)/(x2-x1)
+      theta = math.atan(m)
+      theta_deg = math.degrees(theta)
+
+      if ((x_discr>0) and (y_discr>0)):
+        theta_deg = -(90 + theta_deg)
+      elif ((x_discr<0) and (y_discr<0)):
+        theta_deg = 90 - theta_deg
+      elif ((x_discr<0) and (y_discr>0)):
+        theta_deg = 90 - theta_deg
+      elif ((x_discr>0) and (y_discr<0)):
+        theta_deg = -90 - theta_deg
+    
+    return theta_deg
+
+  @staticmethod
+  def draw_rotated_rectangle(image, center, side_length, angle):
+    # Calcular la mitad del lado para obtener las coordenadas del rectángulo sin rotar
+    half_side = side_length / 2
+
+    # Crear una matriz de puntos del rectángulo sin rotar (en el orden: top-left, top-right, bottom-right, bottom-left)
+    rect_points = np.array([
+        [-half_side, -half_side],
+        [half_side, -half_side],
+        [half_side, half_side],
+        [-half_side, half_side]
+    ])
+
+    # Crear la matriz de rotación 2D
+    rotation_matrix = cv.getRotationMatrix2D((0, 0), angle, 1.0)
+
+    # Aplicar la rotación a cada punto
+    rotated_points = np.dot(rect_points, rotation_matrix[:, :2].T).astype(int)
+
+    # Trasladar los puntos al centro especificado
+    rotated_points += np.array(center)
+
+    # Dibujar el rectángulo rotado
+    cv.polylines(image, [rotated_points], isClosed=True, color=(237,107,213), thickness=2)
+
+  def doTagDetection(self, frame):
+    list_yellow_rad = []
+    list_blue_rad = []
+
+    tag_main_y = []
+    tag_main_b = []
+
+    list_centers_Yellow = []
+    list_centers_Blue = []
+    list_centers_Red = []
+    list_centers_Green = []
+    list_centers_Cyan = []
+    list_centers_Magenta = []
+
+    # BGR TO HSV CONVERSION
+    hsv = cv.cvtColor(frame, cv.COLOR_BGR2HSV)
+
+    # CREATE A MASK FOR COLORS
+    mask_yel = cv.inRange(hsv, np.array(self.Tcolors_LowRange['Yellow']),
+                          np.array(self.Tcolors_HighRange['Yellow']))
+    mask_blue = cv.inRange(hsv, np.array(self.Tcolors_LowRange['Blue']),
+                            np.array(self.Tcolors_HighRange['Blue']))
+    mask_red = cv.inRange(hsv, np.array(self.Tcolors_LowRange['Red']),
+                          np.array(self.Tcolors_HighRange['Red']))
+    mask_green = cv.inRange(hsv, np.array(self.Tcolors_LowRange['Green']),
+                            np.array(self.Tcolors_HighRange['Green']))
+    mask_cyan = cv.inRange(hsv, np.array(self.Tcolors_LowRange['Cyan']),
+                            np.array(self.Tcolors_HighRange['Cyan']))
+    mask_magenta = cv.inRange(hsv, np.array(self.Tcolors_LowRange['Magent']),
+                              np.array(self.Tcolors_HighRange['Magent']))
+    # ------ falta el naranga de la pelota
+
+    # Find contors of masks
+    contoursYellow, _ = cv.findContours(mask_yel, cv.RETR_EXTERNAL, cv.CHAIN_APPROX_SIMPLE)
+    contoursBlue, _ = cv.findContours(mask_blue, cv.RETR_EXTERNAL, cv.CHAIN_APPROX_SIMPLE)
+    contoursRed, _ = cv.findContours(mask_red, cv.RETR_EXTERNAL, cv.CHAIN_APPROX_SIMPLE)
+    contoursGreen, _ = cv.findContours(mask_green, cv.RETR_EXTERNAL, cv.CHAIN_APPROX_SIMPLE)
+    contoursCyan, _ = cv.findContours(mask_cyan, cv.RETR_EXTERNAL, cv.CHAIN_APPROX_SIMPLE)
+    contoursMagenta, _ = cv.findContours(mask_magenta, cv.RETR_EXTERNAL, cv.CHAIN_APPROX_SIMPLE)
+    
+
+    #contours = contoursRed + contoursYellow
+
+    # CONTOURS
+    # --- for Yellow
+    for contour in contoursYellow:
+      area = cv.contourArea(contour)
+      if area > self.areaThreshold:
+        #approx = cv.approxPolyDP(contour, 0.04 * cv.arcLength(contour, True), True)
+        rect = self.find_aprox_square(contour)
+        ang = self.get_square_angule(contour)
+        #print(f'angule Yellow square = {ang}')
+        box = cv.boxPoints(((rect[0] + rect[2] // 2, rect[1] + rect[3] // 2), (rect[2], rect[3]), 0))
+        box = np.intp(box)
+
+        c_pos = self.get_square_center(rect)
+        r = int(math.sqrt(rect[2]**2 + rect[3]**2) * 0.68)
+
+        if self.debug_draws['d_color_rect']: 
+          cv.drawContours(frame, [box], 0, (0, 255, 255), 2)
+        if self.debug_draws['centers']:
+          cv.circle(frame, c_pos, 5, (0, 255, 255), -1)
+        
+        if self.debug_draws['tag_d_area']:
+          cv.circle(frame, c_pos, r , (0, 255, 255), 1)
+
+        list_yellow_rad.append(r)
+        list_centers_Yellow.append(c_pos)
+
+    # --- for Blue
+    for contour in contoursBlue:
+      area = cv.contourArea(contour)
+      if area > self.areaThreshold:
+        #approx = cv.approxPolyDP(contour, 0.04 * cv.arcLength(contour, True), True)
+        rect = self.find_aprox_square(contour)
+        ang = self.get_square_angule(contour)
+        #print(f'angule Yellow square = {ang}')
+        box = cv.boxPoints(((rect[0] + rect[2] // 2, rect[1] + rect[3] // 2), (rect[2], rect[3]), 0))
+        box = np.intp(box)
+
+        c_pos = self.get_square_center(rect)
+        r = int(math.sqrt(rect[2]**2 + rect[3]**2) * 0.68)
+
+        if self.debug_draws['d_color_rect']: 
+          cv.drawContours(frame, [box], 0, (255, 0, 0), 2)
+        if self.debug_draws['centers']:
+          cv.circle(frame, c_pos, 5, (255, 0, 0), -1)
+        
+        if self.debug_draws['tag_d_area']:
+          cv.circle(frame, c_pos, r , (255, 0, 0), 1)
+
+        list_blue_rad.append(r)
+        list_centers_Blue.append(c_pos)
+
+    # --- for Red
+    for contour in contoursRed:
+      area = cv.contourArea(contour)
+      if area > self.areaThreshold:
+        rect = self.find_aprox_square(contour)
+        ang = self.get_square_angule(contour)
+        box = cv.boxPoints(((rect[0] + rect[2] // 2, rect[1] + rect[3] // 2), (rect[2], rect[3]), ang))
+        box = np.intp(box)
+
+        c_pos = self.get_square_center(rect)
+
+        if self.debug_draws['d_color_rect']:
+          cv.drawContours(frame, [box], 0, (0, 0, 255), 2)
+        if self.debug_draws['centers']:
+          cv.circle(frame, c_pos, 5, (0, 0, 255), -1)
+
+        list_centers_Red.append(c_pos)
+    
+    # --- for Green
+    for contour in contoursGreen:
+      area = cv.contourArea(contour)
+      if area > self.areaThreshold:
+        rect = self.find_aprox_square(contour)
+        ang = self.get_square_angule(contour)
+
+        box = cv.boxPoints(((rect[0] + rect[2] // 2, rect[1] + rect[3] // 2), (rect[2], rect[3]), ang))
+        box = np.intp(box)
+
+        c_pos = self.get_square_center(rect)
+        
+        if self.debug_draws['d_color_rect']:
+          cv.drawContours(frame, [box], 0, (0, 255, 0), 2)
+        if self.debug_draws['centers']:
+          cv.circle(frame, c_pos, 5, (0, 255, 0), -1)
+        
+        list_centers_Green.append(c_pos)
+
+    # --- for Cyan
+    for contour in contoursCyan:
+      area = cv.contourArea(contour)
+      if area > self.areaThreshold:
+        rect = self.find_aprox_square(contour)
+        ang = self.get_square_angule(contour)
+
+        box = cv.boxPoints(((rect[0] + rect[2] // 2, rect[1] + rect[3] // 2), (rect[2], rect[3]), ang))
+        box = np.intp(box)
+
+        c_pos = self.get_square_center(rect)
+        
+        if self.debug_draws['d_color_rect']:
+          cv.drawContours(frame, [box], 0, (235, 233, 110), 2)
+        if self.debug_draws['centers']:
+          cv.circle(frame, c_pos, 5, (235, 233, 110), -1)
+        
+        list_centers_Green.append(c_pos)
+
+    # --- for Magenta
+    for contour in contoursMagenta:
+      area = cv.contourArea(contour)
+      if area > self.areaThreshold:
+        rect = self.find_aprox_square(contour)
+        ang = self.get_square_angule(contour)
+
+        box = cv.boxPoints(((rect[0] + rect[2] // 2, rect[1] + rect[3] // 2), (rect[2], rect[3]), ang))
+        box = np.intp(box)
+
+        c_pos = self.get_square_center(rect)
+        
+        if self.debug_draws['d_color_rect']:
+          cv.drawContours(frame, [box], 0, (247, 69, 247), 2)
+        if self.debug_draws['centers']:
+          cv.circle(frame, c_pos, 5, (247, 69, 247), -1)
+        
+        list_centers_Green.append(c_pos)
+
+
+    # Detect tag 
+    if len(list_centers_Yellow) >0:
+      for i in range(len(list_centers_Yellow)):
+        t_i = 1
+        center_yel = list_centers_Yellow[i]
+        t_ps = [center_yel]
+        t_ps_c = ['y']
+
+        for center_red in list_centers_Red:
+          if self.get_distance_btwn_points(center_yel,center_red) < list_yellow_rad[i]:
+            t_i += 1
+            t_ps.append(center_red)
+            t_ps_c.append('r')
+
+        for center_green in list_centers_Green:
+          if self.get_distance_btwn_points(center_yel,center_green) < list_yellow_rad[i]:
+            t_i += 1
+            t_ps.append(center_green) 
+            t_ps_c.append('g')
+      
+        for center_cyan in list_centers_Cyan:
+          if self.get_distance_btwn_points(center_yel,center_cyan) < list_yellow_rad[i]:
+            t_i += 1
+            t_ps.append(center_cyan) 
+            t_ps_c.append('c')
+      
+        for center_magent in list_centers_Magenta:
+          if self.get_distance_btwn_points(center_yel,center_magent) < list_yellow_rad[i]:
+            t_i += 1
+            t_ps.append(center_magent) 
+            t_ps_c.append('m')
+
+        if t_i >= 3 :
+          if self.debug_draws['tag_t_lines']:
+            cv.line(frame,t_ps[0],t_ps[1],(255,0,0),2)
+            cv.line(frame,t_ps[0],t_ps[2],(255,0,0),2)
+            cv.line(frame,t_ps[1],t_ps[2],(107,237,170),3)
+          
+          x1,y1 = t_ps[0]
+          x2,y2 = t_ps[1]
+          x3,y3 = t_ps[2]
+
+          c = ((x1+x2+x3)//3,(y1+y2+y3)//3)
+          #d_m = get_distance_btwn_points(c,t_ps[0])
+          d_a_deg = self.get_vert_inclination(t_ps[0],c)
+          d_a = math.radians(d_a_deg)
+          d_p = (c[0] - int(list_yellow_rad[i]*0.8*math.sin(d_a)), c[1] - int(list_yellow_rad[i]*0.8*math.cos(d_a)))
+          #d_pp = (c[0] - int(d_m*math.sin(d_a +3.1416)), c[1] - int(d_m*math.cos(d_a+3.1416)))
+
+          if self.debug_draws['tag_center']:
+            cv.circle(frame, c, 5, (237,107,213), -1)
+          if self.debug_draws['tag_perimeter']:
+            cv.line(frame, c, d_p, (237,107,213), 2)
+            #cv.line(frame, c, d_pp,(0,255,0), 2 )
+            self.draw_rotated_rectangle(frame,c,list_yellow_rad[i]*1.7,d_a_deg)
+          if self.debug_draws['angle_ref']:
+            cv.line(frame, c,(c[0],c[1]-20),(0,0,213),2)
+
+          # TAG ID Identify
+          ID_found = 'y'
+          if (d_a_deg<= 40 and d_a_deg >= -40):
+            if(x2 < x3):
+              ID_found += t_ps_c[1] + t_ps_c[2]
+            else:
+              ID_found += t_ps_c[2] + t_ps_c[1]
+          elif (d_a_deg > 40 and d_a_deg < 120):
+            if(y2 > y3):
+              ID_found += t_ps_c[1] + t_ps_c[2]
+            else:
+              ID_found += t_ps_c[2] + t_ps_c[1]
+          elif (d_a_deg < -40 and d_a_deg > -120):
+            if(y3 > y2):
+              ID_found += t_ps_c[1] + t_ps_c[2]
+            else:
+              ID_found += t_ps_c[2] + t_ps_c[1]
+          else: # 120->180 and -120 -> -
+            if(x2 > x3):
+              ID_found += t_ps_c[1] + t_ps_c[2]
+            else:
+              ID_found += t_ps_c[2] + t_ps_c[1]
+            pass
+
+          if self.debug_draws['tag_ID_text']:
+            t = f'Y-TAG-{self.tag_yellow_ID[ID_found]}'
+            cv.putText(frame, t, (c[0]-30,c[1]+20), cv.FONT_HERSHEY_SIMPLEX, 0.4,(0,0,0),2)
+
+          t_ps.append(c)
+          tag_main_y.append(t_ps)
+
+          print(f"Se detecto un Tag!! \nCon centro en: {c}\nY una inclinazion resperto a la vertical de {round(d_a_deg)}°")
+          print(f"El ID es '{ID_found}' del TAG {self.tag_yellow_ID[ID_found]}")
+
+    if len(list_centers_Blue) > 0:
+      for i in range(len(list_centers_Blue)):
+        t_i = 1
+        center_blue = list_centers_Blue[i]
+        t_ps = [center_blue]
+        t_ps_c = ['b']
+
+        for center_red in list_centers_Red:
+          if self.get_distance_btwn_points(center_blue,center_red) < list_blue_rad[i]:
+            t_i += 1
+            t_ps.append(center_red)
+            t_ps_c.append('r')
+
+        for center_green in list_centers_Green:
+          if self.get_distance_btwn_points(center_blue,center_green) < list_blue_rad[i]:
+            t_i += 1
+            t_ps.append(center_green) 
+            t_ps_c.append('g')
+      
+        for center_cyan in list_centers_Cyan:
+          if self.get_distance_btwn_points(center_blue,center_cyan) < list_blue_rad[i]:
+            t_i += 1
+            t_ps.append(center_cyan) 
+            t_ps_c.append('c')
+      
+        for center_magent in list_centers_Magenta:
+          if self.get_distance_btwn_points(center_blue,center_magent) < list_blue_rad[i]:
+            t_i += 1
+            t_ps.append(center_magent) 
+            t_ps_c.append('m')
+
+        if t_i >= 3 :
+          if self.debug_draws['tag_t_lines']:
+            cv.line(frame,t_ps[0],t_ps[1],(255,0,0),2)
+            cv.line(frame,t_ps[0],t_ps[2],(255,0,0),2)
+            cv.line(frame,t_ps[1],t_ps[2],(107,237,170),3)
+          
+          x1,y1 = t_ps[0]
+          x2,y2 = t_ps[1]
+          x3,y3 = t_ps[2]
+
+          c = ((x1+x2+x3)//3,(y1+y2+y3)//3)
+          #d_m = get_distance_btwn_points(c,t_ps[0])
+          d_a_deg = self.get_vert_inclination(t_ps[0],c)
+          d_a = math.radians(d_a_deg)
+          d_p = (c[0] - int(list_blue_rad[i]*0.8*math.sin(d_a)), c[1] - int(list_blue_rad[i]*0.8*math.cos(d_a)))
+          #d_pp = (c[0] - int(d_m*math.sin(d_a +3.1416)), c[1] - int(d_m*math.cos(d_a+3.1416)))
+
+          if self.debug_draws['tag_center']:
+            cv.circle(frame, c, 5, (237,107,213), -1)
+          if self.debug_draws['tag_perimeter']:
+            cv.line(frame, c, d_p, (237,107,213), 2)
+            #cv.line(frame, c, d_pp,(0,255,0), 2 )
+            self.draw_rotated_rectangle(frame,c,list_yellow_rad[i]*1.7,d_a_deg)
+          if self.debug_draws['angle_ref']:
+            cv.line(frame, c,(c[0],c[1]-20),(0,0,213),2)
+
+          # TAG ID Identify
+          ID_found = 'b'
+          if (d_a_deg<= 40 and d_a_deg >= -40):
+            if(x2 < x3):
+              ID_found += t_ps_c[1] + t_ps_c[2]
+            else:
+              ID_found += t_ps_c[2] + t_ps_c[1]
+          elif (d_a_deg > 40 and d_a_deg < 120):
+            if(y2 > y3):
+              ID_found += t_ps_c[1] + t_ps_c[2]
+            else:
+              ID_found += t_ps_c[2] + t_ps_c[1]
+          elif (d_a_deg < -40 and d_a_deg > -120):
+            if(y3 > y2):
+              ID_found += t_ps_c[1] + t_ps_c[2]
+            else:
+              ID_found += t_ps_c[2] + t_ps_c[1]
+          else: # 120->180 and -120 -> -
+            if(x2 > x3):
+              ID_found += t_ps_c[1] + t_ps_c[2]
+            else:
+              ID_found += t_ps_c[2] + t_ps_c[1]
+            pass
+
+          if self.debug_draws['tag_ID_text']:
+            t = f'B-TAG-{self.tag_blue_ID[ID_found]}'
+            cv.putText(frame, t, (c[0]-30,c[1]+20), cv.FONT_HERSHEY_SIMPLEX, 0.4,(0,0,0),2)
+
+          t_ps.append(c)
+          tag_main_b.append(t_ps)
+
+          print(f"Se detecto un Tag!! \nCon centro en: {c}\nY una inclinazion resperto a la vertical de {round(d_a_deg)}°")
+          print(f"El ID es '{ID_found}' del TAG {self.tag_blue_ID[ID_found]}")
+      
+    return frame
+
   def updateFrame(self):
     if self.webcam is not None:
       ret, self.current_frame = self.webcam.read()
@@ -136,6 +656,39 @@ class WebCamParameters:
           for i in range(len(self.HGP_point_values)):
             if self.HGP_point_values[i] is not None:
               cv.circle(self.current_frame, self.HGP_point_values[i], 4, (255, 0, 255), -1)
+        
+        if self.enableColorDetection:
+          self.current_frame = self.doTagDetection(self.current_frame)
+          """
+          hsv = cv.cvtColor(self.current_frame, cv.COLOR_BGR2HSV)
+
+          mask_yel = cv.inRange(hsv, np.array(self.Tcolors_LowRange['Yellow']), 
+                                np.array(self.Tcolors_HighRange['Yellow']))
+          mask_red = cv.inRange(hsv, np.array(self.Tcolors_LowRange['Red']), 
+                                np.array(self.Tcolors_HighRange['Red']))
+          
+          # Encontrar contornos en la máscara
+          #contours2, _ = cv.findContours(mask_red, cv.RETR_EXTERNAL, cv.CHAIN_APPROX_SIMPLE)
+          contours1, _ = cv.findContours(mask_yel, cv.RETR_EXTERNAL, cv.CHAIN_APPROX_SIMPLE)
+
+          contours = contours1
+          for contour in contours:
+            area = cv.contourArea(contour)
+            if area > 100:  # Filtrar contornos pequeños
+              # Calcular el rectángulo aproximado al contorno
+              rect = self.encontrar_cuadrado_aprox(contour)
+              # Calcular el centro del rectángulo
+              centro = self.encontrar_centro(rect) 
+              # Calcular el ángulo de rotación del contorno
+              angulo = self.encontrar_angulo(contour)
+              # Dibujar el cuadrado en la imagen
+              box = cv.boxPoints(((rect[0] + rect[2] // 2, rect[1] + rect[3] // 2), (rect[2], rect[3]), 0))
+              box = np.intp(box)
+              cv.drawContours(self.current_frame, [box], 0, (0, 255, 0), 2)
+              # Dibujar el centro del cuadrado en la imagen
+              cv.circle(self.current_frame, centro, 5, (255, 0, 0), -1)
+          """
+
     return self.current_frame
 
 class StreamWebcamVideo(ttk.Frame):
@@ -529,7 +1082,7 @@ class TagDetectionCalibration(ttk.Frame):
 
     #--- varibles
     self.camera_info = camera_info
-    self.tag_colors_list = ('Yellow', 'Blue', 'Red', 'Cyan', 'Green','Magent')
+    self.tag_colors_list = ('Yellow', 'Blue', 'Red', 'Cyan', 'Green','Magent', 'Orange')
 
     #--- widgets
     self.CC_frame = ttk.Frame(
@@ -774,6 +1327,7 @@ class TagDetectionCalibration(ttk.Frame):
 
   def enableColorDetect(self):
     self.camera_info.enableColorDetection = not self.camera_info.enableColorDetection
+    print(f'Color Detection is {self.camera_info.enableColorDetection}')
 
   def enable_CC_frame(self,enable):
     if enable:
