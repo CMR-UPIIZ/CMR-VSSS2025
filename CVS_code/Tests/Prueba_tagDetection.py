@@ -1,6 +1,4 @@
 import cv2 as cv
-from PIL import Image, ImageTk
-import json
 import numpy as np
 import math
 
@@ -34,7 +32,7 @@ debug_draws ={
   'tag_t_lines': False,
   'tag_d_area': False,
   'tag_ID_text': True,
-  'angle_ref': False
+  'angle_ref': True
 }
 
 tag_yellow_ID = {
@@ -397,7 +395,7 @@ def detec_tag(frame):
       if debug_draws['centers']:
         cv.circle(frame, c_pos, 5, (235, 233, 110), -1)
       
-      list_centers_Green.append(c_pos)
+      list_centers_Cyan.append(c_pos)
 
   # --- for Magenta
   for contour in contoursMagenta:
@@ -424,34 +422,99 @@ def detec_tag(frame):
     for i in range(len(list_centers_Yellow)):
       t_i = 1
       center_yel = list_centers_Yellow[i]
-      t_ps = [center_yel]
-      t_ps_c = ['y']
+      t_ps = [center_yel] #Point of the centers of colors
+      t_ps_d = [0]        #Distances of the center second color to the main color
+      t_ps_c = ['y']      #Code of de color
 
+      #-> RED color association identification
+      vaild_p_d = 1000000
+      valid_p = None
       for center_red in list_centers_Red:
-        if get_distance_btwn_points(center_yel,center_red) < list_yellow_rad[i]:
-          t_i += 1
-          t_ps.append(center_red)
-          t_ps_c.append('r')
+        D = get_distance_btwn_points(center_yel,center_red)
+        if D < list_yellow_rad[i]:
+          if(D < vaild_p_d):
+            vaild_p_d = D
+            valid_p = center_red
+      
+      if valid_p != None:
+        t_i += 1
+        t_ps.append(valid_p)
+        t_ps_d.append(vaild_p_d)
+        t_ps_c.append('r')
 
+      #-> GREEN color association identification
+      vaild_p_d = 1000000
+      valid_p = None
       for center_green in list_centers_Green:
-        if get_distance_btwn_points(center_yel,center_green) < list_yellow_rad[i]:
-          t_i += 1
-          t_ps.append(center_green) 
-          t_ps_c.append('g')
-    
-      for center_cyan in list_centers_Cyan:
-        if get_distance_btwn_points(center_yel,center_cyan) < list_yellow_rad[i]:
-          t_i += 1
-          t_ps.append(center_cyan) 
-          t_ps_c.append('c')
-    
-      for center_magent in list_centers_Magenta:
-        if get_distance_btwn_points(center_yel,center_magent) < list_yellow_rad[i]:
-          t_i += 1
-          t_ps.append(center_magent) 
-          t_ps_c.append('m')
+        D = get_distance_btwn_points(center_yel,center_green)
+        if D < list_yellow_rad[i]:
+          if(D < vaild_p_d):
+            vaild_p_d = D
+            valid_p = center_green
 
-      if t_i >= 3 :
+      if valid_p != None:
+        t_i += 1
+        t_ps.append(valid_p)
+        t_ps_d.append(vaild_p_d)
+        t_ps_c.append('g')
+      
+      # - CYAN color association identification 
+      vaild_p_d = 1000000
+      valid_p = None
+      for center_cyan in list_centers_Cyan:
+        D = get_distance_btwn_points(center_yel,center_cyan)
+        if D < list_yellow_rad[i]:
+          if(D < vaild_p_d):
+            vaild_p_d = D
+            valid_p = center_cyan
+      
+      if valid_p != None:
+        t_i += 1
+        t_ps.append(valid_p)
+        t_ps_d.append(vaild_p_d)
+        t_ps_c.append('c')
+    
+      #-> MAGENT color association identification 
+      vaild_p_d = 1000000
+      valid_p = None 
+      for center_magent in list_centers_Magenta:
+        D = get_distance_btwn_points(center_yel,center_magent)
+        if D < list_yellow_rad[i]:
+          if(D < vaild_p_d):
+            vaild_p_d = D
+            valid_p = center_magent
+      
+      if valid_p != None:
+        t_i += 1
+        t_ps.append(valid_p)
+        t_ps_d.append(vaild_p_d)
+        t_ps_c.append('m')
+
+      #-> Find the possible colors for the TAG
+      if t_i > 3:
+        min_d_point  = ()
+        pre_min_d_point = ()
+        min_d_p_code = ''
+        pre_mid_d_p_code = ''
+        aux_d = 1000000
+        for j in range(len(t_ps_d)):
+          if j == 0:
+            pass
+          else:
+            D = t_ps_d[i]
+            if D < aux_d:
+              aux_d = D
+              pre_min_d_point = min_d_point
+              pre_mid_d_p_code = min_d_p_code
+              min_d_point = t_ps[i]
+              min_d_p_code = t_ps_c[i]
+      
+        t_ps = [center_yel, min_d_point, pre_min_d_point]
+        t_ps_c = ['y',min_d_p_code, pre_mid_d_p_code]
+        t_i = 3
+
+      #-> Find TAG parameters
+      if t_i == 3 :
         if debug_draws['tag_t_lines']:
           cv.line(frame,t_ps[0],t_ps[1],(255,0,0),2)
           cv.line(frame,t_ps[0],t_ps[2],(255,0,0),2)
@@ -515,34 +578,99 @@ def detec_tag(frame):
     for i in range(len(list_centers_Blue)):
       t_i = 1
       center_blue = list_centers_Blue[i]
-      t_ps = [center_blue]
-      t_ps_c = ['b']
+      t_ps = [center_blue]#Point of the centers of colors
+      t_ps_d = [0]        #Distances of the center second color to the main color
+      t_ps_c = ['b']      #Code of de color
 
+      #-> RED color association identification
+      vaild_p_d = 1000000
+      valid_p = None
       for center_red in list_centers_Red:
-        if get_distance_btwn_points(center_blue,center_red) < list_blue_rad[i]:
-          t_i += 1
-          t_ps.append(center_red)
-          t_ps_c.append('r')
+        D = get_distance_btwn_points(center_blue,center_red)
+        if D < list_blue_rad[i]:
+          if(D < vaild_p_d):
+            vaild_p_d = D
+            valid_p = center_red
+      
+      if valid_p != None:
+        t_i += 1
+        t_ps.append(valid_p)
+        t_ps_d.append(vaild_p_d)
+        t_ps_c.append('r')
 
+      #-> GREEN color association identification
+      vaild_p_d = 1000000
+      valid_p = None
       for center_green in list_centers_Green:
-        if get_distance_btwn_points(center_blue,center_green) < list_blue_rad[i]:
-          t_i += 1
-          t_ps.append(center_green) 
-          t_ps_c.append('g')
-    
-      for center_cyan in list_centers_Cyan:
-        if get_distance_btwn_points(center_blue,center_cyan) < list_blue_rad[i]:
-          t_i += 1
-          t_ps.append(center_cyan) 
-          t_ps_c.append('c')
-    
-      for center_magent in list_centers_Magenta:
-        if get_distance_btwn_points(center_blue,center_magent) < list_blue_rad[i]:
-          t_i += 1
-          t_ps.append(center_magent) 
-          t_ps_c.append('m')
+        D = get_distance_btwn_points(center_blue,center_green)
+        if D < list_blue_rad[i]:
+          if(D < vaild_p_d):
+            vaild_p_d = D
+            valid_p = center_green
 
-      if t_i >= 3 :
+      if valid_p != None:
+        t_i += 1
+        t_ps.append(valid_p)
+        t_ps_d.append(vaild_p_d)
+        t_ps_c.append('g')
+      
+      # - CYAN color association identification 
+      vaild_p_d = 1000000
+      valid_p = None
+      for center_cyan in list_centers_Cyan:
+        D = get_distance_btwn_points(center_blue,center_cyan)
+        if D < list_blue_rad[i]:
+          if(D < vaild_p_d):
+            vaild_p_d = D
+            valid_p = center_cyan
+      
+      if valid_p != None:
+        t_i += 1
+        t_ps.append(valid_p)
+        t_ps_d.append(vaild_p_d)
+        t_ps_c.append('c')
+    
+      #-> MAGENT color association identification 
+      vaild_p_d = 1000000
+      valid_p = None 
+      for center_magent in list_centers_Magenta:
+        D = get_distance_btwn_points(center_blue,center_magent)
+        if D < list_blue_rad[i]:
+          if(D < vaild_p_d):
+            vaild_p_d = D
+            valid_p = center_magent
+      
+      if valid_p != None:
+        t_i += 1
+        t_ps.append(valid_p)
+        t_ps_d.append(vaild_p_d)
+        t_ps_c.append('m')
+
+      #-> Find the possible colors for the TAG
+      if t_i > 3:
+        min_d_point  = ()
+        pre_min_d_point = ()
+        min_d_p_code = ''
+        pre_mid_d_p_code = ''
+        aux_d = 1000000
+        for j in range(len(t_ps_d)):
+          if j == 0:
+            pass
+          else:
+            D = t_ps_d[i]
+            if D < aux_d:
+              aux_d = D
+              pre_min_d_point = min_d_point
+              pre_mid_d_p_code = min_d_p_code
+              min_d_point = t_ps[i]
+              min_d_p_code = t_ps_c[i]
+      
+        t_ps = [center_blue, min_d_point, pre_min_d_point]
+        t_ps_c = ['b',min_d_p_code, pre_mid_d_p_code]
+        t_i = 3
+
+      #-> Find TAG parameters
+      if t_i == 3 :
         if debug_draws['tag_t_lines']:
           cv.line(frame,t_ps[0],t_ps[1],(255,0,0),2)
           cv.line(frame,t_ps[0],t_ps[2],(255,0,0),2)
@@ -564,7 +692,7 @@ def detec_tag(frame):
         if debug_draws['tag_perimeter']:
           cv.line(frame, c, d_p, (237,107,213), 2)
           #cv.line(frame, c, d_pp,(0,255,0), 2 )
-          draw_rotated_rectangle(frame,c,list_yellow_rad[i]*1.7,d_a_deg)
+          draw_rotated_rectangle(frame,c,list_blue_rad[i]*1.7,d_a_deg)
         if debug_draws['angle_ref']:
           cv.line(frame, c,(c[0],c[1]-20),(0,0,213),2)
 
@@ -601,7 +729,7 @@ def detec_tag(frame):
 
         print(f"Se detecto un Tag!! \nCon centro en: {c}\nY una inclinazion resperto a la vertical de {round(d_a_deg)}°")
         print(f"El ID es '{ID_found}' del TAG {tag_blue_ID[ID_found]}")
-    
+
   return frame
 
 
